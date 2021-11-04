@@ -1,0 +1,25 @@
+[package]
+name = "hpx-forward"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hpx-route = { path = "../route" }
+hpx-middleware = { path = "../middleware" }
+hpx-tracing = { path = "../tracing" }
+hpx-sampling = { path = "../sampling" }
+hpx-context = { path = "../context" }
+hpx-error = { path = "../error" }
+hyper = { version = "0.14.14", features = ["http1", "http2", "client", "tcp"] }
+log = "0.4.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# hyper-timeout = "0.4"
+mick-jaeger = "0.1.4"
+rand = "0.7.3"
+tokio = { version = "1", features = ["rt", "time", "net", "sync", "rt-multi-thread"] }
+futures = { version = "0.3", default-features = false }
+bit-set = "0.5.2"
+bytes = "1.1.0"

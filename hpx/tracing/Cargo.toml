@@ -1,0 +1,13 @@
+[package]
+name = "hpx-tracing"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hyper = { version = "0.14", features = ["client"] }
+hpx-error = { path = "../error" }
+log = "0.4.11"
+mick-jaeger = "0.1.4"
+tokio = { version = "1", features = ["rt", "time", "net", "sync", "rt-multi-thread"] }

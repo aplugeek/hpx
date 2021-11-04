@@ -1,0 +1,25 @@
+[package]
+name = "hpx-mesh"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = ["multicore"]
+multicore = ["tokio/rt-multi-thread", "num_cpus"]
+
+[dependencies]
+futures = { version = "0.3", default-features = false }
+mimalloc = { version = "0.1.26", optional = true }
+num_cpus = { version = "1", optional = true }
+#linkerd-app = { path = "../linkerd/app" }
+hpx-signal = { path = "../hpx/signal" }
+hpx-forward = { path = "../hpx/forward" }
+hpx-route = { path = "../hpx/route" }
+hpx-register = { path = "../hpx/register" }
+hpx-context = { path = "../hpx/context" }
+hpx-app = { path = "../hpx/app" }
+tokio = { version = "1", features = ["rt", "time", "net", "sync", "rt-multi-thread"] }
+hyper = { version = "0.14", features = ["stream", "client", "server", "http1", "http2", "tcp"] }
+structopt = { version = "0.3", default-features = false }
+log = "0.4.11"
+env_logger = "0.7.1"

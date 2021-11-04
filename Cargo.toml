@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "hpx-mesh",
+    "hpx/signal",
+    "hpx/forward",
+    "hpx/route",
+    "hpx/register",
+    "hpx/tracing",
+    "hpx/error",
+    "hpx/context",
+    "hpx/sampling",
+    "hpx/middleware",
+    "hpx/app"
+]
+
+[profile.release]
+opt-level = 'z'
+lto = true
+codegen-units = 1
+panic = 'abort'

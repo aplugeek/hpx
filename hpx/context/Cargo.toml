@@ -1,0 +1,16 @@
+[package]
+name = "hpx-context"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hpx-app = { path = "../app" }
+hpx-tracing = { path = "../tracing" }
+hpx-route = { path = "../route" }
+hpx-sampling = { path = "../sampling" }
+mick-jaeger = "0.1.4"
+bit-set = "0.5.2"
+#https://github.com/seanmonstar/reqwest/issues/1162
+hyper = { version = "0.14.14", features = ["http1", "http2", "client", "tcp", "runtime"] }
