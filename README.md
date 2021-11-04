@@ -38,8 +38,10 @@ curl -v  --unix-socket /tmp/hpx/hpx.sock  --request POST 'http://unix/route/regi
     ]
   }
 ]
+```
 
 ## Configuration
+
 ```shell script
 OPEN_TRACING=127.0.0.1:6831 #jaeger 
 SAMPLING_PERCENTAGE=10  #sampling percentage 0-100
