@@ -1,5 +1,7 @@
 # Hybrid Traffic Mesh Proxy
 
+[![license](https://img.shields.io/github/license/mashape/apistatus.svg)](https://github.com/i-pva/stopless/blob/master/LICENSE)
+
 L7 proxy on kubernetes
 
 dependencies: 
