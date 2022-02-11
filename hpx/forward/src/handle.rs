@@ -2,17 +2,19 @@ use crate::{Respond, RespondKind};
 
 #[macro_use]
 use hpx_middleware::middleware;
-use hpx_middleware::middleware::{sampling_rate_ctl, with_print, with_trace};
+use hpx_middleware::middleware::{
+    is_sampling, parse_trace, sampling_rate_ctl, with_body_size_limit, with_print, with_trace,
+};
 use hpx_route::Route;
 use hyper::http::header::UPGRADE;
-use hyper::http::{HeaderValue, Request, Response};
+use hyper::http::{HeaderMap, HeaderValue, Request, Response, StatusCode};
 use hyper::Body;
 
 use std::num::{NonZeroU128, NonZeroU64};
 
-use hpx_context::ctx::Forward;
+use hpx_context::ctx::{Forward, SendTrace};
 use hpx_context::Context;
-use hpx_tracing::{Tracing, X_PARENT_ID, X_SAMPLING, X_SPAN_ID, X_TRACE_ID};
+use hpx_tracing::{set_tracing_header, Tracing, X_PARENT_ID, X_SAMPLING, X_SPAN_ID, X_TRACE_ID};
 use serde::de::Unexpected::Bytes;
 use std::sync::Arc;
 
@@ -21,107 +23,65 @@ pub async fn proxy(
     route: Arc<Route>,
     mut req: Request<Body>,
 ) -> Result<Response<Body>, hyper::Error> {
-    let (sreq, ctx_ref) = (&mut req, &ctx);
-    if let Err(e) = middleware!(sreq, ctx_ref, with_print, sampling_rate_ctl) {
-        let mut respond = Response::new(Body::from(e.message.clone()));
-        *respond.status_mut() = e.status_code;
-        return Ok(respond);
+    let (mut_req, ctx_ref) = (&mut req, &ctx);
+    if let Err(e) = middleware!(
+        mut_req,
+        ctx_ref,
+        with_print,
+        with_body_size_limit,
+        sampling_rate_ctl,
+        with_trace
+    ) {
+        return Ok(to_response(e.code, e.message));
     }
-    let (forward_uri, trace, sampling) = (
-        sreq.uri().clone(),
-        gen_open_tracing(sreq),
-        is_sampling(sreq),
-    );
-    let origin_resp = Respond::from_kind(get_respond_kind(ctx.clone(), route, req));
-    let target = origin_resp.target.clone();
-    let mut response = origin_resp.await;
+    let (sampling, trace) = (is_sampling(mut_req), parse_trace(mut_req));
+    let respond = Respond::from_kind(to_respond_kind(ctx.clone(), route, req));
+
+    Ok(trace_respond(ctx, sampling, trace, respond).await?)
+}
+
+async fn trace_respond(
+    ctx: Arc<Context>,
+    sampling: bool,
+    trace: Tracing,
+    respond: Respond,
+) -> Result<Response<Body>, hyper::Error> {
+    let target = respond.target.clone();
+    let mut response = respond.await;
+    if !sampling {
+        return Ok(response);
+    }
     let mut body_bytes = bytes::Bytes::new();
     if !response.status().is_success() {
         let (part, body) = response.into_parts();
         body_bytes = hyper::body::to_bytes(body).await?;
         response = Response::from_parts(part, Body::from(body_bytes.clone()));
     }
-    let status_code = response.status().as_u16();
-    trace!(
-        "Forward to{:?}, status_code:{:?}",
-        forward_uri,
-        response.status().as_u16()
-    );
+    let status_code = response.status_mut().as_u16();
     if let Some(t) = target {
-        if sampling {
-            tokio::spawn(async move {
-                trace_respond(ctx, trace, t.as_str(), status_code, body_bytes.to_vec()).await;
-            });
-        }
+        tokio::spawn(async move {
+            send_tracing(ctx, trace, t.as_str(), status_code, body_bytes.to_vec()).await;
+        });
     }
-    set_tracing_header(trace, sampling, &mut response);
+    set_tracing_header(trace, sampling, response.headers_mut());
 
     Ok(response)
 }
 
-fn set_tracing_header(trace: Tracing, sampling: bool, resp: &mut Response<Body>) {
-    resp.headers_mut().insert(
-        X_TRACE_ID,
-        HeaderValue::from_str(trace.trace_id.to_string().as_str()).unwrap(),
-    );
-    resp.headers_mut().insert(
-        X_SPAN_ID,
-        HeaderValue::from_str(trace.span_id.to_string().as_str()).unwrap(),
-    );
-    if sampling {
-        resp.headers_mut()
-            .insert(X_SAMPLING, HeaderValue::from_static("true"));
-    }
-}
-
-fn gen_open_tracing(req: &mut Request<Body>) -> Tracing {
-    let mut trace = Tracing {
-        trace_id: NonZeroU128::new(rand::random()).unwrap(),
-        span_id: NonZeroU64::new(rand::random()).unwrap(),
-        parent_id: None,
-    };
-
-    if let Some(root) = req.headers().get(X_TRACE_ID) {
-        trace.trace_id = root
-            .to_str()
-            .map_or(NonZeroU128::new(rand::random()).unwrap(), |v| {
-                v.parse()
-                    .unwrap_or(NonZeroU128::new(rand::random()).unwrap())
-            });
-    }
-    if let Some(span) = req.headers().get(X_SPAN_ID) {
-        trace.span_id = span
-            .to_str()
-            .map_or(NonZeroU64::new(rand::random()).unwrap(), |v| {
-                v.parse()
-                    .unwrap_or(NonZeroU64::new(rand::random()).unwrap())
-            });
-    }
-    if let Some(parent) = req.headers().get(X_PARENT_ID) {
-        trace.parent_id = parent.to_str().map_or(None, |v| {
-            v.parse()
-                .map_or(None, |v| Some(NonZeroU64::new(v).unwrap()))
-        });
-    }
-
-    trace
-}
-
-fn is_sampling(req: &mut Request<Body>) -> bool {
-    if let Some(_) = req.headers().get(X_SAMPLING) {
-        return true;
-    }
-    false
-}
-
-fn get_respond_kind(ctx: Arc<Context>, route: Arc<Route>, req: Request<Body>) -> RespondKind {
+fn to_respond_kind(ctx: Arc<Context>, route: Arc<Route>, req: Request<Body>) -> RespondKind {
     match req.headers().get(UPGRADE) {
         Some(_) => RespondKind::Upgrade(ctx, route, req),
         None => RespondKind::Forward(ctx, route, req),
     }
 }
 
-async fn trace_respond(
+pub(crate) fn to_response(code: u16, message: String) -> Response<Body> {
+    let mut respond = Response::new(Body::from(message.to_string()));
+    *respond.status_mut() = StatusCode::from_u16(code).unwrap_or(StatusCode::default());
+    respond
+}
+
+async fn send_tracing(
     ctx: Arc<Context>,
     trace: Tracing,
     target: &str,

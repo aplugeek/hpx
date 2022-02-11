@@ -66,7 +66,7 @@ fn main() {
                 let bind = register_server(static_ctx, "/tmp/hpx/hpx.sock").await;
                 if let Err(e) = bind {
                     error!("bind register server error: {:?}", e);
-                    std::process::exit(0)
+                    std::process::exit(1)
                 }
             };
             let signal = async move {

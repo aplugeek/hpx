@@ -4,7 +4,8 @@ use hpx_route::Route;
 use hpx_sampling::{random_set, DEFAULT_RESERVOIR_SIZE};
 use hpx_tracing::{start_tracing, Tracing};
 use hyper::client::{Client, HttpConnector, ResponseFuture};
-use hyper::http::Request;
+use hyper::http::header::CONTENT_TYPE;
+use hyper::http::{Request, Version};
 use hyper::Body;
 use mick_jaeger::TracesIn;
 use std::sync::atomic::AtomicUsize;
@@ -18,6 +19,7 @@ pub struct GTX {
 pub struct Context {
     route: RwLock<Arc<Route>>,
     h1_client: Client<HttpConnector, Body>,
+    h2_client: Client<HttpConnector, Body>,
     trace_in: Option<Arc<TracesIn>>,
     state: ContextState,
 }
@@ -30,6 +32,10 @@ impl Context {
         let mut ctx = Self {
             route: RwLock::default(),
             h1_client: Client::builder()
+                .pool_idle_timeout(Some(Duration::from_secs(5)))
+                .build(connector.clone()),
+            h2_client: Client::builder()
+                .http2_only(true)
                 .pool_idle_timeout(Some(Duration::from_secs(5)))
                 .build(connector),
             trace_in: None,
@@ -54,8 +60,10 @@ impl Context {
 pub trait Forward {
     fn get_route(&self) -> Arc<Route>;
     fn reload_route(&self, route: Route);
-    fn send_tracing(&self, trace: Tracing, status_code: u16, target: &str, msg: &str);
     fn forward_to(&self, req: Request<Body>) -> ResponseFuture;
+}
+pub trait SendTrace: Forward {
+    fn send_tracing(&self, trace: Tracing, status_code: u16, target: &str, msg: &str);
 }
 
 impl Forward for Arc<Context> {
@@ -69,6 +77,20 @@ impl Forward for Arc<Context> {
         *lock = Arc::new(route);
     }
 
+    fn forward_to(&self, req: Request<Body>) -> ResponseFuture {
+        if req.version() == Version::HTTP_2
+            && req
+                .headers()
+                .get(CONTENT_TYPE)
+                .map_or(false, |x| x.to_str().unwrap_or("").eq("application/grpc"))
+        {
+            return self.h2_client.request(req);
+        }
+        self.h1_client.request(req)
+    }
+}
+
+impl SendTrace for Arc<Context> {
     fn send_tracing(&self, trace: Tracing, status_code: u16, target: &str, msg: &str) {
         if let Some(trace_in) = &self.trace_in {
             let mut _span = trace_in.span_with_id_and_parent(
@@ -82,9 +104,5 @@ impl Forward for Arc<Context> {
                 _span.log().with_string("message", msg);
             }
         }
-    }
-
-    fn forward_to(&self, req: Request<Body>) -> ResponseFuture {
-        self.h1_client.request(req)
     }
 }

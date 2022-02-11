@@ -15,6 +15,7 @@ use hyper::http::{Request, Response, StatusCode, Uri};
 use hyper::Body;
 
 mod handle;
+use crate::to_response;
 pub use handle::*;
 use hpx_context::ctx::Forward;
 use hpx_context::Context;
@@ -47,9 +48,10 @@ impl Future for Respond {
                 Ok(resp) => Poll::Ready(resp),
                 Err(e) => {
                     error!("Forward to {:?} error: {:?}", self.target, e);
-                    let mut resp = Response::new(Body::from(e.to_string()));
-                    *resp.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
-                    Poll::Ready(resp)
+                    Poll::Ready(to_response(
+                        StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+                        e.to_string(),
+                    ))
                 }
             },
             Poll::Pending => Poll::Pending,

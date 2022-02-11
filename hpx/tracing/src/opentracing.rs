@@ -1,3 +1,4 @@
+use hyper::http::{HeaderMap, HeaderValue};
 use mick_jaeger::TracesIn;
 use std::num::{NonZeroU128, NonZeroU64};
 use std::sync::Arc;
@@ -32,4 +33,18 @@ pub async fn start_tracing(
     });
 
     return Ok(traces_in);
+}
+
+pub fn set_tracing_header(trace: Tracing, sampling: bool, header: &mut HeaderMap<HeaderValue>) {
+    header.insert(
+        X_TRACE_ID,
+        HeaderValue::from_str(trace.trace_id.to_string().as_str()).unwrap(),
+    );
+    header.insert(
+        X_SPAN_ID,
+        HeaderValue::from_str(trace.span_id.to_string().as_str()).unwrap(),
+    );
+    if sampling {
+        header.insert(X_SAMPLING, HeaderValue::from_static("true"));
+    }
 }
